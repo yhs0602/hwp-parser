@@ -1,7 +1,7 @@
 IDIR=src/include
 CFBHDR=$(wildcard $(IDIR)/*.h)
 CC=g++
-CFLAGS=-I$(IDIR) -std=c++11 -Wall
+CFLAGS=-I$(IDIR) -std=c++17 -Wall
 
 ODIR=out
 

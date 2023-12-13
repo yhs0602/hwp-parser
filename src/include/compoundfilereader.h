@@ -224,6 +224,11 @@ public:
         return entry->type == 2;
     }
 
+    bool IsStorage(const COMPOUND_FILE_ENTRY* entry) const
+    {
+        return entry->type == 1;
+    }
+
     void EnumFiles(const COMPOUND_FILE_ENTRY* entry, int maxLevel, EnumFilesCallback callback) const
     {
         utf16string dir;
