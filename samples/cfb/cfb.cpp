@@ -40,7 +40,7 @@ std::vector<uint8_t> decompressData(const uint8_t* data, size_t length) {
     std::vector<uint8_t> decompressedData;
     z_stream strm = {0};
     strm.total_in = strm.avail_in = length;
-    strm.next_in = (Bytef *)data;
+    strm.next_in = (Bytef *) data;
 
     // Initialize the output buffer size and the z_stream
     size_t outputBufferSize = length * 2; // Initial estimate for the output buffer size
@@ -56,15 +56,15 @@ std::vector<uint8_t> decompressData(const uint8_t* data, size_t length) {
         strm.next_out = outputBuffer.data();
 
         ret = inflate(&strm, Z_NO_FLUSH);
-        assert(ret != Z_STREAM_ERROR);  // State not clobbered
+        assert(ret != Z_STREAM_ERROR); // State not clobbered
 
         switch (ret) {
             case Z_NEED_DICT:
-                ret = Z_DATA_ERROR;     // And fall through
+                ret = Z_DATA_ERROR; // And fall through
             case Z_DATA_ERROR:
             case Z_MEM_ERROR:
                 inflateEnd(&strm);
-            throw std::runtime_error("zlib decompression error");
+                throw std::runtime_error("zlib decompression error");
         }
 
         size_t have = outputBufferSize - strm.avail_out;
@@ -245,6 +245,38 @@ typedef struct __attribute__((packed)) {
 # define HWPTAG_TRACK_CHANGE (HWPTAG_BEGIN + 80) // 변경 추적 내용 및 모양
 # define HWPTAG_TRACK_CHANGE_AUTHOR (HWPTAG_BEGIN + 81) // 변경 추적 작성자
 
+# define HWPTAG_PARA_HEADER (HWPTAG_BEGIN+50) // 문단 헤더
+# define HWPTAG_PARA_TEXT (HWPTAG_BEGIN+51) // 문단 텍스트
+# define HWPTAG_PARA_CHAR_SHAPE (HWPTAG_BEGIN+52) // 문단 글자 모양
+# define HWPTAG_PARA_LINE_SEG (HWPTAG_BEGIN+53) // 문단 줄 단위 정보
+# define HWPTAG_PARA_RANGE_TAG (HWPTAG_BEGIN+54) // 문단 범위 태그
+# define HWPTAG_CTRL_HEADER (HWPTAG_BEGIN+55) // 컨트롤 헤더
+# define HWPTAG_LIST_HEADER (HWPTAG_BEGIN+56) // 리스트 헤더
+# define HWPTAG_PAGE_DEF (HWPTAG_BEGIN+57) // 용지 정의
+# define HWPTAG_FOOTNOTE_SHAPE (HWPTAG_BEGIN+58) // 각주/미주 모양
+# define HWPTAG_PAGE_BORDER_FILL (HWPTAG_BEGIN+59) // 쪽 테두리/배경
+# define HWPTAG_SHAPE_COMPONENT (HWPTAG_BEGIN+60) // 개체 구성요소
+# define HWPTAG_TABLE (HWPTAG_BEGIN+61) // 표
+# define HWPTAG_SHAPE_COMPONENT_LINE (HWPTAG_BEGIN+62) // 개체 구성요소 선
+# define HWPTAG_SHAPE_COMPONENT_RECTANGLE (HWPTAG_BEGIN+63) // 개체 구성요소 사각형
+# define HWPTAG_SHAPE_COMPONENT_ELLIPSE (HWPTAG_BEGIN+64) // 개체 구성요소 타원
+# define HWPTAG_SHAPE_COMPONENT_ARC (HWPTAG_BEGIN+65) // 개체 구성요소 호
+# define HWPTAG_SHAPE_COMPONENT_POLYGON (HWPTAG_BEGIN+66) // 개체 구성요소 다각형
+# define HWPTAG_SHAPE_COMPONENT_CURVE (HWPTAG_BEGIN+67) // 개체 구성요소 곡선
+# define HWPTAG_SHAPE_COMPONENT_OLE (HWPTAG_BEGIN+68) // 개체 구성요소 OLE
+# define HWPTAG_SHAPE_COMPONENT_PICTURE (HWPTAG_BEGIN+69) // 개체 구성요소 그림
+# define HWPTAG_SHAPE_COMPONENT_CONTAINER (HWPTAG_BEGIN+70) // 개체 구성요소 컨테이너
+# define HWPTAG_CTRL_DATA (HWPTAG_BEGIN+71) // 컨트롤 데이터
+# define HWPTAG_EQEDIT (HWPTAG_BEGIN+72) // 수식
+# define RESERVED (HWPTAG_BEGIN+73) // 예약
+# define HWPTAG_SHAPE_COMPONENT_TEXTART (HWPTAG_BEGIN+74) // 개체 구성요소 텍스트아트
+# define HWPTAG_FORM_OBJECT (HWPTAG_BEGIN+75) // 양식 개체
+// # define HWPTAG_MEMO_SHAPE (HWPTAG_BEGIN+76) // 메모 모양
+# define HWPTAG_MEMO_LIST (HWPTAG_BEGIN+77) // 메모 리스트
+# define HWPTAG_CHART_DATA (HWPTAG_BEGIN+79) // 차트 데이터
+# define HWPTAG_VIDEO_DATA (HWPTAG_BEGIN+82) // 비디오 데이터
+# define HWPTAG_SHAPE_COMPONENT_UNKNOWN (HWPTAG_BEGIN+99) // 개체 구성요소 알 수 없는 개체
+
 
 struct hwp_document_properties {
     // 자료형 길이(바이트) 설명
@@ -293,13 +325,53 @@ struct hwptag_bin_data {
     // OLE의 경우 ole
     // 전체 길이 가변 10 + (2×len1) + (2×len2) + (2×len3) 바이트
 };
+
+struct hwptag_para_header {
+    // 자료형
+    // UINT32 4 text(=chars) if (nchars & 0x80000000) then nchars = nchars & 0x7FFFFFFF
+    // UINT32 4 control mask
+    // (UINT32)(1<<ctrlch) 조합
+    // ctrlch는 HwpCtrlAPI.Hwp 2.1 CtrlCh 참고
+    // UINT16 2 문단 모양 아이디 참조값
+    // UINT8 1 문단 스타일 아이디 참조값
+    // UINT8 1 단 나누기 종류(표 59 참조) 0x01 구역 나누기 0x02 다단 나누기 0x04 페이지 나누기 0x08 단 나누기
+    // UINT16 2 글자 모양 정보 수
+    // UINT16 2 range tag 정보 수
+    // UINT16 2 각 줄에 대한 align에 대한 정보 수
+    // UINT32 4 문단 Instance ID (unique ID)
+    // UINT16 2 변경추적 병합 문단여부. (5.0.3.2 버전 이상)
+    uint32_t text;
+    uint32_t controlMask;
+    uint16_t paragraphShapeID;
+    uint8_t paragraphStyleID;
+    uint8_t divideSort;
+    uint16_t charShapeCount;
+    uint16_t rangeTagCount;
+    uint16_t alignCount;
+    uint32_t instanceID;
+    uint16_t trackChangeMerge;
+};
+
+struct hwptag_para_text {
+    // WCHAR array[sizeof(nchars)]
+    // 2×nchars 문자수만큼의 텍스트
+    std::vector<uint16_t> text;
+};
+
 #pragma pack(pop)
 
-using RecordVariant = variant<hwp_document_properties, hwptag_id_mappings /* , 다른 타입들... */>;
+using RecordVariant = variant<
+    hwp_document_properties,
+    hwptag_id_mappings,
+    hwptag_bin_data,
+    hwptag_para_header,
+    hwptag_para_text
+>;
 
 // 레코드와 태그 ID를 함께 저장하는 래퍼 구조체
 struct TaggedRecord {
     uint32_t tagID;
+    uint32_t size;
     RecordVariant record;
 };
 
@@ -322,6 +394,75 @@ void processData(const uint8_t* data, uint32_t dataSize, uint32_t tagID, std::ve
                 // 바이너리 데이터 처리
             }
         }
+    } else if (tagID == HWPTAG_PARA_HEADER) {
+        if (dataSize >= sizeof(hwptag_para_header)) {
+            taggedRecord.size = dataSize;
+            taggedRecord.record = *reinterpret_cast<const hwptag_para_header *>(data);
+        }
+    } else if (tagID == HWPTAG_PARA_TEXT) {
+        taggedRecord.record = hwptag_para_text();
+        taggedRecord.size = dataSize;
+        auto& paraText = get<hwptag_para_text>(taggedRecord.record);
+        paraText.text = std::vector<uint16_t>(dataSize / sizeof(uint16_t));
+        memcpy(paraText.text.data(), data, dataSize);
+    } else if (tagID == HWPTAG_PARA_CHAR_SHAPE) {
+        // 글자 모양 처리
+    } else if (tagID == HWPTAG_PARA_LINE_SEG) {
+        // 줄 단위 정보 처리
+    } else if (tagID == HWPTAG_PARA_RANGE_TAG) {
+        // 범위 태그 처리
+    } else if (tagID == HWPTAG_CTRL_HEADER) {
+        // 컨트롤 헤더 처리
+    } else if (tagID == HWPTAG_LIST_HEADER) {
+        // 리스트 헤더 처리
+    } else if (tagID == HWPTAG_PAGE_DEF) {
+        // 용지 정의 처리
+    } else if (tagID == HWPTAG_FOOTNOTE_SHAPE) {
+        // 각주/미주 모양 처리
+    } else if (tagID == HWPTAG_PAGE_BORDER_FILL) {
+        // 쪽 테두리/배경 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT) {
+        // 개체 구성요소 처리
+    } else if (tagID == HWPTAG_TABLE) {
+        // 표 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_LINE) {
+        // 개체 구성요소 선 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_RECTANGLE) {
+        // 개체 구성요소 사각형 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_ELLIPSE) {
+        // 개체 구성요소 타원 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_ARC) {
+        // 개체 구성요소 호 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_POLYGON) {
+        // 개체 구성요소 다각형 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_CURVE) {
+        // 개체 구성요소 곡선 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_OLE) {
+        // 개체 구성요소 OLE 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_PICTURE) {
+        // 개체 구성요소 그림 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_CONTAINER) {
+        // 개체 구성요소 컨테이너 처리
+    } else if (tagID == HWPTAG_CTRL_DATA) {
+        // 컨트롤 데이터 처리
+    } else if (tagID == HWPTAG_EQEDIT) {
+        // 수식 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_TEXTART) {
+        // 개체 구성요소 텍스트아트 처리
+    } else if (tagID == HWPTAG_FORM_OBJECT) {
+        // 양식 개체 처리
+    } else if (tagID == HWPTAG_MEMO_SHAPE) {
+        // 메모 모양 처리
+    } else if (tagID == HWPTAG_MEMO_LIST) {
+        // 메모 리스트 처리
+    } else if (tagID == HWPTAG_CHART_DATA) {
+        // 차트 데이터 처리
+    } else if (tagID == HWPTAG_VIDEO_DATA) {
+        // 비디오 데이터 처리
+    } else if (tagID == HWPTAG_SHAPE_COMPONENT_UNKNOWN) {
+        // 개체 구성요소 알 수 없는 개체 처리
+    } else {
+        // 알 수 없는 태그 ID 처리
     }
     // 다른 태그 ID들에 대한 처리...
 
@@ -376,6 +517,39 @@ public:
             cout << "idMappings[" << i << "]: " << rec.idMappings[i] << endl;
         }
     }
+
+    void operator()(const hwptag_bin_data& rec) const {
+        std::cout << "Processing hwptag_bin_data" << std::endl;
+    }
+
+    void operator()(const hwptag_para_header& rec) const {
+        std::cout << "Processing hwptag_para_header" << std::endl;
+        cout << "text: " << rec.text << endl;
+        cout << "controlMask: " << rec.controlMask << endl;
+        cout << "paragraphShapeID: " << rec.paragraphShapeID << endl;
+        cout << "paragraphStyleID: " << rec.paragraphStyleID << endl;
+        cout << "divideSort: " << rec.divideSort << endl;
+        cout << "charShapeCount: " << rec.charShapeCount << endl;
+        cout << "rangeTagCount: " << rec.rangeTagCount << endl;
+        cout << "alignCount: " << rec.alignCount << endl;
+        cout << "instanceID: " << rec.instanceID << endl;
+        cout << "trackChangeMerge: " << rec.trackChangeMerge << endl;
+    }
+
+    void operator()(const hwptag_para_text& rec) const {
+        std::cout << "Processing hwptag_para_text" << std::endl;
+        // Read 19 * 2 bytes and cast as wchar_t
+        // reinterpret_cast is not allowed.
+        // const wchar_t* text = reinterpret_cast<const wchar_t*>(rec.text);
+        for (const auto& ch: rec.text) {
+            if (ch < 32) {
+                cout << "Control character" << endl;
+
+            }
+            cout << ch << ";";
+        }
+        cout << endl;
+    }
 };
 
 
@@ -406,6 +580,16 @@ void DumpDocInfo(const char* buffer, size_t len) {
     auto records = parseRecords(decompressed.data(), decompressed.size());
     // 각 레코드 처리
     for (const auto& taggedRecord: records) {
+        std::visit(RecordVisitor(), taggedRecord.record);
+    }
+}
+
+void DumpHwpBody(const char* buffer, size_t len) {
+    auto decompressed = decompressData(reinterpret_cast<const uint8_t *>(buffer), len);
+    auto records = parseRecords(decompressed.data(), decompressed.size());
+    // 각 레코드 처리
+    for (const auto& taggedRecord: records) {
+        std::cout << "Size:" << taggedRecord.size << std::endl;
         std::visit(RecordVisitor(), taggedRecord.record);
     }
 }
@@ -531,8 +715,13 @@ int main_internal(int argc, char* argv[]) {
         else if (strcmp(streamName, "DocInfo") == 0) {
             DumpBuffer(content.get(), size);
             DumpDocInfo(content.get(), size);
-        } else
+        } else if (strcmp(streamName, "BodyText\\Section0") == 0) {
+            // TODO: Check pattern
             DumpBuffer(content.get(), size);
+            DumpHwpBody(content.get(), size);
+        } else {
+            DumpBuffer(content.get(), size);
+        }
     } else if (strcmp(cmd, "info") == 0) {
         if (streamName == nullptr) {
             OutputFileInfo(reader);
