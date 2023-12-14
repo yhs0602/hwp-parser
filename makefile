@@ -2,6 +2,7 @@ IDIR=src/include
 CFBHDR=$(wildcard $(IDIR)/*.h)
 CC=g++
 CFLAGS=-I$(IDIR) -std=c++17 -Wall
+LDFLAGS=-lz  # Linker flags, add -lz for zlib
 
 ODIR=out
 
@@ -13,7 +14,7 @@ out/ieot: samples/IEOpenedTabParser/openedtab.cpp samples/IEOpenedTabParser/IEOp
 
 out/cfb: samples/cfb/cfb.cpp $(CFBHDR)
 	mkdir -p out
-	$(CC) -o $@ $< $(CFLAGS)
+	$(CC) -o $@ $< $(CFLAGS) $(LDFLAGS)
 
 .PHONY: clean
 

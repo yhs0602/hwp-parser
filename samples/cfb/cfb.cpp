@@ -1,3 +1,4 @@
+#include <cassert>
 #include <compoundfilereader.h>
 #include <utf.h>
 #include <string.h>
@@ -7,6 +8,7 @@
 #include <iomanip>
 #include <limits>
 #include <variant>
+#include <zlib.h>
 
 using namespace std;
 
@@ -32,6 +34,46 @@ void DumpBuffer(const void* buffer, size_t len) {
 
 void DumpText(const char* buffer, size_t len) {
     cout << std::string(buffer, len) << endl;
+}
+
+std::vector<uint8_t> decompressData(const uint8_t* data, size_t length) {
+    std::vector<uint8_t> decompressedData;
+    z_stream strm = {0};
+    strm.total_in = strm.avail_in = length;
+    strm.next_in = (Bytef *)data;
+
+    // Initialize the output buffer size and the z_stream
+    size_t outputBufferSize = length * 2; // Initial estimate for the output buffer size
+    std::vector<uint8_t> outputBuffer(outputBufferSize);
+
+    if (inflateInit2(&strm, -MAX_WBITS) != Z_OK) {
+        throw std::runtime_error("Failed to initialize zlib decompression");
+    }
+
+    int ret;
+    do {
+        strm.avail_out = outputBufferSize;
+        strm.next_out = outputBuffer.data();
+
+        ret = inflate(&strm, Z_NO_FLUSH);
+        assert(ret != Z_STREAM_ERROR);  // State not clobbered
+
+        switch (ret) {
+            case Z_NEED_DICT:
+                ret = Z_DATA_ERROR;     // And fall through
+            case Z_DATA_ERROR:
+            case Z_MEM_ERROR:
+                inflateEnd(&strm);
+            throw std::runtime_error("zlib decompression error");
+        }
+
+        size_t have = outputBufferSize - strm.avail_out;
+        decompressedData.insert(decompressedData.end(), outputBuffer.begin(), outputBuffer.begin() + have);
+    } while (strm.avail_out == 0);
+
+    inflateEnd(&strm);
+
+    return decompressedData;
 }
 
 void DumpHwpHeader(const char* buffer, size_t len) {
@@ -292,6 +334,11 @@ vector<TaggedRecord> parseRecords(const uint8_t* data, size_t length) {
     std::vector<TaggedRecord> records = std::vector<TaggedRecord>();
     while (offset < length) {
         const auto* header = reinterpret_cast<const RecordHeader *>(data + offset);
+        // const auto headerDword = *reinterpret_cast<const uint32_t *>(data + offset);
+        // cout << "HeaderDword: " << headerDword << endl;
+        // cout << "TagID: " << header->TagID << endl;
+        // cout << "Level: " << header->Level << endl;
+        // cout << "Size: " << header->Size << endl;
 
         uint32_t dataSize = header->Size;
         if (dataSize == 4095) {
@@ -355,7 +402,8 @@ void DumpDocInfo(const char* buffer, size_t len) {
     // HWPTAG_LAYOUT_COMPATIBILITY 20 1 레이아웃 호환성(표 56 참조)
     // HWPTAG_DISTRIBUTE_DOC_DATA 256 0 배포용 문서
     // HWPTAG_TRACKCHANGE 1032 1 변경 추적 정보
-    auto records = parseRecords(reinterpret_cast<const uint8_t *>(buffer), len);
+    auto decompressed = decompressData(reinterpret_cast<const uint8_t *>(buffer), len);
+    auto records = parseRecords(decompressed.data(), decompressed.size());
     // 각 레코드 처리
     for (const auto& taggedRecord: records) {
         std::visit(RecordVisitor(), taggedRecord.record);
