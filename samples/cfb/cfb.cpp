@@ -9,8 +9,15 @@
 #include <limits>
 #include <variant>
 #include <zlib.h>
+#include <openssl/aes.h>
 
 using namespace std;
+
+void AES_decrypt(const unsigned char* encryptedMessage, unsigned char* key, unsigned char* decryptedMessage) {
+    AES_KEY aesKey;
+    AES_set_decrypt_key(key, 128, &aesKey);
+    AES_ecb_encrypt(encryptedMessage, decryptedMessage, &aesKey, AES_DECRYPT);
+}
 
 void ShowUsage() {
     cout <<
