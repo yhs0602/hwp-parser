@@ -5,7 +5,7 @@ CFLAGS=-I$(IDIR) -std=c++17 -Wall
 LDFLAGS=-L/opt/homebrew/opt/openssl@3/lib -lz -lssl -lcrypto # Linker flags, add -lz for zlib
 
 ODIR=out
-OBJ=$(ODIR)/cfb.o $(ODIR)/decrypt.o
+OBJ=$(ODIR)/cfb.o $(ODIR)/decrypt.o $(ODIR)/genkey.o
 
 $(ODIR)/%.o: samples/cfb/%.cpp $(CFBHDR)
 	mkdir -p $(ODIR)

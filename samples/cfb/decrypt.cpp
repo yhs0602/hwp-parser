@@ -1,7 +1,6 @@
 #include <iostream>
 #include <openssl/aes.h>
 #include <vector>
-#include <cstring>
 
 const unsigned int BLOCK_SIZE = 16;
 
@@ -41,7 +40,8 @@ private:
     AES_KEY aesKey_;
 };
 
-std::vector<unsigned char> gogo(const std::vector<unsigned char>& pwd, const std::vector<unsigned char>& data, bool isEncrypt = true) {
+std::vector<unsigned char> gogo(const std::vector<unsigned char>& pwd, const std::vector<unsigned char>& data,
+                                bool isEncrypt = true) {
     std::vector<unsigned char> finalData;
     std::vector<unsigned char> TMP_IN(16, 0);
 
@@ -57,7 +57,23 @@ std::vector<unsigned char> gogo(const std::vector<unsigned char>& pwd, const std
                 REAL_INPUT[i >> 3] ^= (OUT0 & 0x80) >> (i & 7);
             }
 
-            // ... (continue with the TMP_IN update logic as in the Python script)
+            auto tmp = 1;
+            for (int j = 0; j < 3; ++j) {
+                auto v14 = TMP_IN[tmp];
+                TMP_IN[tmp - 1] = ((2 * TMP_IN[tmp - 1]) & 0xFF) | (TMP_IN[tmp] >> 7);
+                auto v15 = TMP_IN[tmp + 1];
+                auto v16 = ((2 * v14) & 0xFF) | (TMP_IN[tmp + 1] >> 7);
+                auto v17 = TMP_IN[tmp + 2];
+                TMP_IN[tmp] = v16;
+                auto v18 = ((2 * v15) & 0xFF) | (v17 >> 7);
+                auto v19 = TMP_IN[tmp + 3];
+                TMP_IN[tmp + 1] = v18;
+                auto v20 = ((2 * v17) & 0xFF) | (v19 >> 7);
+                auto v21 = ((2 * v19) & 0xFF) | (TMP_IN[tmp + 4] >> 7);
+                TMP_IN[tmp + 2] = v20;
+                TMP_IN[tmp + 3] = v21;
+                tmp += 5;
+            }
 
             if (isEncrypt) {
                 TMP_IN[15] = ((2 * TMP_IN[15]) & 0xff) | (REAL_INPUT[i >> 3] >> (7 - ff));
@@ -67,13 +83,10 @@ std::vector<unsigned char> gogo(const std::vector<unsigned char>& pwd, const std
             if (!isEncrypt) {
                 REAL_INPUT[i >> 3] ^= (OUT0 & 0x80) >> (i & 7);
             }
-
-            // ... (continue with the final_data update logic as in the Python script)
         }
 
         if (isEncrypt) {
             finalData.insert(finalData.end(), TMP_IN.begin(), TMP_IN.end());
-            // ... (add any additional handling as needed)
         } else {
             finalData.insert(finalData.end(), REAL_INPUT.begin(), REAL_INPUT.end());
         }
