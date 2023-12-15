@@ -2,6 +2,7 @@
 #include <openssl/aes.h>
 #include <vector>
 
+// https://github.com/junorouse/hwp-password-recover/tree/master
 const unsigned int BLOCK_SIZE = 16;
 
 std::vector<unsigned char> pad(const std::vector<unsigned char>& data) {

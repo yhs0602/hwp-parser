@@ -4,6 +4,7 @@
 
 #ifndef GENKEY_H
 #define GENKEY_H
+#include <string>
 
 std::string genkey(const std::string& pwd);
 
