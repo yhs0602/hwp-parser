@@ -41,6 +41,7 @@ private:
     AES_KEY aesKey_;
 };
 
+// given a password and data, encrypt or decrypt the data
 std::vector<unsigned char> gogo(const std::vector<unsigned char>& pwd, const std::vector<unsigned char>& data,
                                 bool isEncrypt = true) {
     std::vector<unsigned char> finalData;

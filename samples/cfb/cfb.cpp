@@ -12,6 +12,8 @@
 #include <openssl/aes.h>
 #include "hwp.hpp"
 #include "cxxopts.hpp"
+#include "genkey.h"
+#include "decrypt.hpp"
 
 using namespace std;
 
@@ -85,7 +87,37 @@ std::vector<uint8_t> decompressData(const uint8_t* data, size_t length) {
     return decompressedData;
 }
 
-void DumpHwpHeader(const char* buffer, size_t len) {
+struct HwpHeader {
+    unsigned int versionMM;
+    unsigned int versionnn;
+    unsigned int versionPP;
+    unsigned int versionrr;
+    bool compressed;
+    bool encrypted;
+    bool distributed;
+    bool script;
+    bool drm;
+    bool xmltemplate;
+    bool history;
+    bool signature;
+    bool certencrypt;
+    bool signature2;
+    bool drm2;
+    bool ccl;
+    bool mobile;
+    bool personalinfo;
+    bool trackchange;
+    bool kogl;
+    bool video;
+    bool toc;
+    bool ccl2;
+    bool copylimit;
+    bool copylimit2;
+    unsigned int encryptVersion;
+    unsigned int licenseCountry;
+};
+
+HwpHeader DumpHwpHeader(const char* buffer, size_t len) {
     // BYTE array[32] 32 signature. 문서 파일은 "HWP Document File"
     // DWORD 4 파일 버전. 0xMMnnPPrr의 형태(예 5.0.3.0) § MM: 문서 형식의 구조가 완전히 바뀌는 것을 나타냄. 숫
     // 자가 다르면 구 버전과 호환 불가능. § nn: 큰 구조는 동일하나, 큰 변화가 있는 것을 나타냄. 숫
@@ -208,6 +240,35 @@ void DumpHwpHeader(const char* buffer, size_t len) {
     else if (licenseCountry != 0)
         cout << "license country: " << std::dec << licenseCountry << endl;
     DumpBuffer(buffer + 49, 207);
+    return HwpHeader{
+        versionMM,
+        versionnn,
+        versionPP,
+        versionrr,
+        compressed,
+        encrypted,
+        distributed,
+        script,
+        drm,
+        xmltemplate,
+        history,
+        signature,
+        certencrypt,
+        signature2,
+        drm2,
+        ccl,
+        mobile,
+        personalinfo,
+        trackchange,
+        kogl,
+        video,
+        toc,
+        ccl2,
+        copylimit,
+        copylimit2,
+        encryptVersion,
+        licenseCountry
+    };
 }
 
 
@@ -387,8 +448,37 @@ public:
     }
 };
 
+vector<unsigned char> DecryptHwpSection(const string& password, const char* data, const size_t len) {
+    // genkey 함수를 사용하여 키 생성
+    std::string pwd = genkey(password);
+    cout << "Input password: " << password << endl; // "1234567890123456
+    cout << "Generated Key: " << pwd << endl; // "1234567890123456"
 
-void DumpDocInfo(const char* buffer, size_t len) {
+    // pad 함수를 사용하여 데이터 패딩
+    std::vector<unsigned char> paddedData = pad(std::vector<unsigned char>(data, data + len));
+
+    // gogo 함수를 사용하여 데이터 복호화
+    return gogo(std::vector<unsigned char>(pwd.begin(), pwd.end()), paddedData, false);
+}
+
+
+void inflate_section(const char* buffer, size_t len, bool compressed, bool encrypted, const string& password, vector<uint8_t>& decompressed) {
+    vector<uint8_t> decrypted;
+    if (encrypted) {
+        decrypted = DecryptHwpSection(password, buffer, len);
+        cout << "Decrypted" << endl;
+    } else {
+        decrypted = vector<uint8_t>(buffer, buffer + len);
+    }
+    if (compressed) {
+        decompressed = decompressData(decrypted.data(), decrypted.size());
+        cout << "Decompressed" << endl;
+    } else {
+        decompressed = decrypted;
+    }
+}
+
+void DumpDocInfo(const char* buffer, size_t len, bool compressed, bool encrypted, const string& password) {
     // 본문에 사용 중인 글꼴, 글자 속성, 문단 속성, 탭, 스타일 등에 문서 내 공통으로 사용되는 세부 정보를 담고 있다.
     // Tag ID 길이(바이트) 레벨 설명
     // HWPTAG_DOCUMENT_PROPERTIES 30 0 문서 속성(표 14 참조)
@@ -411,7 +501,8 @@ void DumpDocInfo(const char* buffer, size_t len) {
     // HWPTAG_LAYOUT_COMPATIBILITY 20 1 레이아웃 호환성(표 56 참조)
     // HWPTAG_DISTRIBUTE_DOC_DATA 256 0 배포용 문서
     // HWPTAG_TRACKCHANGE 1032 1 변경 추적 정보
-    auto decompressed = decompressData(reinterpret_cast<const uint8_t *>(buffer), len);
+    vector<uint8_t> decompressed;
+    inflate_section(buffer, len, compressed, encrypted, password, decompressed);
     auto records = parseRecords(decompressed.data(), decompressed.size());
     // 각 레코드 처리
     for (const auto& taggedRecord: records) {
@@ -419,8 +510,10 @@ void DumpDocInfo(const char* buffer, size_t len) {
     }
 }
 
-void DumpHwpBody(const char* buffer, size_t len) {
-    auto decompressed = decompressData(reinterpret_cast<const uint8_t *>(buffer), len);
+void DumpHwpBody(const char* buffer, size_t len, bool compressed, bool encrypted, const string& password) {
+    // inflate section
+    vector<uint8_t> decompressed;
+    inflate_section(buffer, len, compressed, encrypted, password, decompressed);
     auto records = parseRecords(decompressed.data(), decompressed.size());
     // 각 레코드 처리
     for (const auto& taggedRecord: records) {
@@ -454,7 +547,8 @@ void OutputEntryInfo(const CFB::CompoundFileReader& reader, const CFB::COMPOUND_
             << "size: " << entry->size << endl;
 }
 
-const void ListDirectory(const CFB::CompoundFileReader& reader) {
+vector<CFB::utf16string> ListDirectory(const CFB::CompoundFileReader& reader) {
+    vector<CFB::utf16string> dirs;
     reader.EnumFiles(reader.GetRootEntry(), -1,
                      [&](const CFB::COMPOUND_FILE_ENTRY* entry, const CFB::utf16string& dir, int level)-> void {
                          bool isDirectory = !reader.IsStream(entry);
@@ -462,7 +556,9 @@ const void ListDirectory(const CFB::CompoundFileReader& reader) {
                          std::string indentstr(level * 4 - 4, ' ');
                          cout << indentstr.c_str() << (isDirectory ? "[" : "") << name.c_str() << (
                              isDirectory ? "]" : "") << endl;
+                         dirs.push_back(dir);
                      });
+    return dirs;
 }
 
 const CFB::COMPOUND_FILE_ENTRY* FindStream(const CFB::CompoundFileReader& reader, const char* streamName,
@@ -489,7 +585,71 @@ const CFB::COMPOUND_FILE_ENTRY* FindStream(const CFB::CompoundFileReader& reader
     return ret;
 }
 
-int new_main(string cmd, string file, string streamName, bool dumpraw) {
+void DumpHwpFile(const CFB::CompoundFileReader& reader, const vector<CFB::utf16string>& dirs, const string& password) {
+    // First dump FileHeader
+    const CFB::COMPOUND_FILE_ENTRY* entry = FindStream(reader, "FileHeader", reader.GetRootEntry());
+    if (entry == nullptr) {
+        cerr << "error: FileHeader doesn't exist" << endl;
+        return;
+    }
+    cout << "FileHeader size: " << entry->size << endl;
+    if (entry->size > std::numeric_limits<size_t>::max()) {
+        cerr << "error: FileHeader too large" << endl;
+        return;
+    }
+    size_t size = static_cast<size_t>(entry->size);
+    std::unique_ptr<char> content(new char[size]);
+    reader.ReadFile(entry, 0, content.get(), size);
+    const auto& header = DumpHwpHeader(content.get(), size);
+    if (header.encrypted) {
+        cout << "The file is encrypted" << endl;
+    }
+    if (header.compressed) {
+        cout << "The file is compressed" << endl;
+    }
+    // Dump DocInfo
+    entry = FindStream(reader, "DocInfo", reader.GetRootEntry());
+    if (entry == nullptr) {
+        cerr << "error: DocInfo doesn't exist" << endl;
+        return;
+    }
+    cout << "size: " << entry->size << endl;
+    if (entry->size > std::numeric_limits<size_t>::max()) {
+        cerr << "error: DocInfo too large" << endl;
+        return;
+    }
+    size = static_cast<size_t>(entry->size);
+    content.reset(new char[size]);
+    reader.ReadFile(entry, 0, content.get(), size);
+    DumpDocInfo(content.get(), size, header.compressed, header.encrypted, password);
+    // Dump BodyText
+    // DocInfo has number of sections in the document
+    // BodyText\Section0
+    // BodyText\Section1
+    // ...
+    // BodyText\SectionN
+    // Dump each section
+    for (int i = 0; i < 1; i++) {
+        std::stringstream ss;
+        ss << "BodyText\\Section" << i;
+        entry = FindStream(reader, ss.str().c_str(), reader.GetRootEntry());
+        if (entry == nullptr) {
+            cerr << "error: " << ss.str() << " doesn't exist" << endl;
+            return;
+        }
+        cout << "size: " << entry->size << endl;
+        if (entry->size > std::numeric_limits<size_t>::max()) {
+            cerr << "error: " << ss.str() << " too large" << endl;
+            return;
+        }
+        size = static_cast<size_t>(entry->size);
+        content.reset(new char[size]);
+        reader.ReadFile(entry, 0, content.get(), size);
+        DumpHwpBody(content.get(), size, header.compressed, header.encrypted, password);
+    }
+}
+
+int new_main(string cmd, string file, string streamName, bool dumpraw, string password) {
     FILE* fp = fopen(file.c_str(), "rb");
     if (fp == NULL) {
         cerr << "read file error" << endl;
@@ -506,8 +666,11 @@ int new_main(string cmd, string file, string streamName, bool dumpraw) {
         ListDirectory(reader);
     } else if (cmd == "dump") {
         if (streamName.empty()) {
-            cerr << "error: stream name is empty" << endl;
-            return 1;
+            // Dump all the hwp file
+            OutputFileInfo(reader);
+            auto dirs = ListDirectory(reader);
+            DumpHwpFile(reader, dirs, password);
+            return 0;
         }
         const CFB::COMPOUND_FILE_ENTRY* entry = FindStream(reader, streamName.c_str(), reader.GetRootEntry());
         if (entry == nullptr) {
@@ -528,11 +691,11 @@ int new_main(string cmd, string file, string streamName, bool dumpraw) {
             DumpHwpHeader(content.get(), size);
         else if (streamName == "DocInfo") {
             DumpBuffer(content.get(), size);
-            DumpDocInfo(content.get(), size);
+            DumpDocInfo(content.get(), size, false, false, password);
         } else if (streamName == "BodyText\\Section0") {
             // TODO: Check pattern
             DumpBuffer(content.get(), size);
-            DumpHwpBody(content.get(), size);
+            DumpHwpBody(content.get(), size, false, false, password);
         } else {
             DumpBuffer(content.get(), size);
         }
@@ -559,8 +722,9 @@ int main(int argc, char* argv[]) {
             ("file", "The HWP file to dump", cxxopts::value<std::string>())
             ("d,debug", "Enable debugging") // a bool parameter
             ("r,raw", "Dump raw value") // a bool parameter
-            ("s,stream", "The stream name to dump", cxxopts::value<std::string>())
-            ("i,integer", "Int param", cxxopts::value<int>())
+            ("s,stream", "The stream name to dump", cxxopts::value<std::string>()->default_value(""))
+            ("p,password", "The password to use if encrypted", cxxopts::value<std::string>()->default_value(""))
+            // ("i,integer", "Int param", cxxopts::value<int>())
             ("v,verbose", "Verbose output", cxxopts::value<bool>()->default_value("false"));
     options.parse_positional({"cmd", "file"});
     auto parsed_options = options.parse(argc, argv);
@@ -574,8 +738,9 @@ int main(int argc, char* argv[]) {
     auto debug = parsed_options["debug"].as<bool>();
     auto raw = parsed_options["raw"].as<bool>();
     auto stream = parsed_options["stream"].as<std::string>();
+    auto password = parsed_options["password"].as<std::string>();
     try {
-        return new_main(cmd, filename, stream, raw);
+        return new_main(cmd, filename, stream, raw, password);
     } catch (CFB::CFBException& e) {
         cerr << "error: " << e.what() << endl;
         return 2;
